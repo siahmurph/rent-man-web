@@ -8,14 +8,12 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 with st.sidebar:
     try:
-        # Access the Spreadsheet ID directly from your Secrets
-        spreadsheet_id = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        client = conn.client
+        # Access the underlying gspread instance directly
+        sh = conn._instance._open_spreadsheet()
 
-        # Open by URL since that is what you have in your secrets
-        sh = client.open_by_url(spreadsheet_id)
-        metadata = sh.fetch_sheet_metadata()
-        weeks = [s["properties"]["title"] for s in metadata["sheets"]]
+        # Get the titles of all tabs
+        worksheets = sh.worksheets()
+        weeks = [w.title for w in worksheets]
 
         st.success("✅ Connection Successful")
         selected_week = st.selectbox(
