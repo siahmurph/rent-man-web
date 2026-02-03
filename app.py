@@ -2,107 +2,89 @@ import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 import io
-import re
 
 # --- UI SETUP ---
 st.set_page_config(page_title="RentManager Summarizer", page_icon="📊", layout="wide")
-
-# Initialize connection
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- SIDEBAR ---
-selected_week = "Select..."
 with st.sidebar:
     try:
-        # Reaches through to the actual gspread tool to get sheet names
         sh = conn._instance._open_spreadsheet()
         worksheets = sh.worksheets()
         weeks = [w.title for w in worksheets]
-
         st.success("✅ Connection Successful")
         selected_week = st.selectbox(
             "📅 Select Reporting Period", ["Select..."] + weeks
         )
     except Exception as e:
         st.error("⚠️ Connection Failed")
-        st.code(str(e))
         st.stop()
 
 # --- MAIN CONTENT ---
 if selected_week != "Select...":
     try:
-        # 1. Pull the raw CSV text from Cell A1
-        # We read without a header first to ensure we get the full string from A1
+        # 1. Pull the raw string from Cell A1
+        # header=None ensures we treat the first row of the sheet as data
         raw_df = conn.read(worksheet=selected_week, header=None)
 
-        if raw_df.empty:
-            st.error("The selected sheet appears to be empty.")
-            st.stop()
+        # Grab the content of A1 (row 0, col 0)
+        raw_content = str(raw_df.iloc[0, 0]).strip()
 
-        raw_text = str(raw_df.iloc[0, 0]).strip()
+        # 2. Parse the CSV text
+        # RentManager often puts quotes around everything.
+        # skipinitialspace handles spaces after commas.
+        df = pd.read_csv(
+            io.StringIO(raw_content),
+            quotechar='"',
+            skipinitialspace=True,
+            on_bad_lines="skip",  # Useful if there are footer/total rows that break the 4-column format
+        )
 
-        # 2. Parse the CSV text with explicit quote handling
-        # skipinitialspace=True helps if there's a space after the comma
-        df = pd.read_csv(io.StringIO(raw_text), quotechar='"', skipinitialspace=True)
+        # 3. Clean Columns & Data
+        df.columns = df.columns.str.strip().str.replace('"', "")
 
-        # 3. Aggressive Cleaning
-        # Strip whitespace from column names
-        df.columns = df.columns.str.strip()
+        # Remove any repeating header rows that might have been sucked in from the A1 text
+        df = df[df["Account Type"] != "Account Type"]
 
-        # Strip whitespace from all string columns to fix matching issues
-        df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
-
-        # 4. Handle the "Amount" column
-        # Removes $, commas, and parentheses (often used for negative numbers in accounting)
-        def clean_currency(value):
-            if pd.isna(value) or value == "":
+        # 4. Convert Amount to Numeric
+        # Handles strings like "$1,234.56" or "(100.00)"
+        def to_numeric_clean(val):
+            if pd.isna(val):
                 return 0.0
-            val_str = str(value).replace("$", "").replace(",", "").strip()
-            # Handle accounting negative numbers: "(100.00)" -> "-100.00"
-            if val_str.startswith("(") and val_str.endswith(")"):
-                val_str = "-" + val_str[1:-1]
+            s = str(val).replace("$", "").replace(",", "").replace('"', "").strip()
+            if s.startswith("(") and s.endswith(")"):
+                s = "-" + s[1:-1]
             try:
-                return float(val_str)
-            except ValueError:
+                return float(s)
+            except:
                 return 0.0
 
         if "Amount" in df.columns:
-            df["Amount"] = df["Amount"].apply(clean_currency)
-        else:
-            st.error(f"Could not find 'Amount' column. Found: {list(df.columns)}")
-            st.stop()
+            df["Amount"] = df["Amount"].apply(to_numeric_clean)
 
-        # 5. Filter for Expenses
-        # Using a regex to catch both 'Expense' and 'Non Operating Expense'
-        mask = df["Account Type"].str.contains("Expense", case=False, na=False)
-        expenses = df[mask].copy()
+        # 5. Filter Logic
+        # This catches both "Expense" and "Non Operating Expense"
+        expense_mask = df["Account Type"].str.contains("Expense", case=False, na=False)
+        expenses = df[expense_mask].copy()
 
         st.header(f"Summary for {selected_week}")
 
         if not expenses.empty:
-            # Display the processed data
-            st.subheader("Expense Breakdown")
-            st.dataframe(expenses, use_container_width=True, height=400)
+            st.dataframe(expenses, use_container_width=True)
 
-            # 6. Summary Metric
             total_val = expenses["Amount"].sum()
             st.divider()
             st.metric(label="Grand Total Expenses", value=f"${total_val:,.2f}")
         else:
-            st.warning("⚠️ No 'Expense' rows found in the data.")
-            with st.expander("Debug: View Raw Data Structure"):
-                st.write("Columns found:", list(df.columns))
+            st.warning("⚠️ No 'Expense' rows found.")
+            # Critical Debug: Show what we actually parsed
+            with st.expander("Debug: Data Structure in Cell A1"):
+                st.write("Columns Detected:", list(df.columns))
                 st.write(
-                    "Unique Account Types:",
-                    (
-                        df["Account Type"].unique()
-                        if "Account Type" in df.columns
-                        else "N/A"
-                    ),
+                    "First 5 rows of Account Type column:",
+                    df["Account Type"].head().tolist(),
                 )
                 st.dataframe(df.head())
 
     except Exception as e:
         st.error(f"Error processing data: {e}")
-else:
-    st.info("👈 Please select a reporting period in the sidebar.")
