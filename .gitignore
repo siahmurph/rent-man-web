@@ -1,0 +1,219 @@
+# GitHub Safety Pack
+
+This document contains:
+1. A **GitHub-specific `.gitignore` template** for **Node + Python + Docker**
+2. A **hard safety checklist** of what should **NEVER** go into GitHub
+3. A rule to **permanently ignore** `H:\.shared-docs`
+
+---
+
+## Part 1: GitHub-Specific `.gitignore` Template
+
+> Safe defaults for mixed Node / Python / Docker projects
+> Copy this entire block into `.gitignore` at the repo root
+
+```
+############################################
+# ABSOLUTE NO-GO (GLOBAL / LOCAL ONLY)
+############################################
+
+# Shared local documents (NEVER COMMIT)
+.shared-docs/
+
+############################################
+# SECRETS / ENVIRONMENT
+############################################
+
+.env
+.env.*
+*.key
+*.pem
+*.crt
+*.pfx
+secrets/
+credentials/
+
+############################################
+# NODE.JS
+############################################
+
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+############################################
+# PYTHON
+############################################
+
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+ENV/
+.env/
+
+############################################
+# DOCKER
+############################################
+
+*.tar
+*.tar.gz
+docker-compose.override.yml
+.docker/
+
+############################################
+# BUILD / DIST OUTPUT
+############################################
+
+build/
+dist/
+out/
+
+############################################
+# EDITORS / OS JUNK
+############################################
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+############################################
+# LOGS
+############################################
+
+*.log
+logs/
+
+############################################
+# TEST / TEMP FILES
+############################################
+
+.tmp/
+.temp/
+.cache/
+coverage/
+```
+
+---
+
+## Important Note About `H:\.shared-docs`
+
+Git only sees **files inside the repository directory**.
+
+To ensure `H:\.shared-docs` is **never committed**:
+
+- Do **NOT** place your Git repository inside `H:\`
+- If your repo references that folder via symlink or mount, the rule above prevents tracking
+
+If this folder is *outside* the repo root, Git already cannot see it.
+
+---
+
+## Part 2: What Should NEVER Go in GitHub (Checklist)
+
+If any of the following exist, they **must be ignored** or removed immediately.
+
+### Credentials & Secrets (CRITICAL)
+
+- API keys
+- OAuth tokens
+- SSH private keys
+- TLS certificates
+- Database passwords
+- `.env` files
+
+If leaked, assume compromise.
+
+---
+
+### Personal / Shared Documents
+
+- Contracts
+- PDFs
+- Invoices
+- Legal documents
+- Notes folders
+- Anything under `.shared-docs`
+
+GitHub is **not** document storage.
+
+---
+
+### Generated or Rebuildable Files
+
+- `node_modules/`
+- `dist/`, `build/`
+- Python bytecode
+- Docker images / exports
+
+If it can be recreated, it does not belong in Git.
+
+---
+
+### Large Binary Media
+
+- Videos
+- Audio
+- Disk images
+- Archives (`.zip`, `.rar`)
+
+Use object storage, NAS, or releases if required.
+
+---
+
+### Editor / Machine-Specific Files
+
+- `.vscode/`
+- `.idea/`
+- OS metadata
+
+These cause conflicts and add no value.
+
+---
+
+### Logs & Runtime Output
+
+- Application logs
+- Crash dumps
+- Debug output
+
+These grow endlessly and pollute history.
+
+---
+
+## Emergency: If You Accidentally Commit Something Bad
+
+```
+git rm --cached filename
+git commit -m "Remove sensitive file"
+git push
+```
+
+If it contained secrets:
+- Rotate keys immediately
+- Assume exposure
+
+---
+
+## One Rule That Prevents 90% of GitHub Disasters
+
+> If the file contains **data** instead of **instructions**, it probably does not belong in GitHub.
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Streamlit/Secrets
+.streamlit/secrets.toml
+secrets.toml
+.secrets
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
