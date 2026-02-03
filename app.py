@@ -4,104 +4,75 @@ from google.cloud import storage
 import io
 
 # --- INITIALIZE APP ---
-st.set_page_config(
-    page_title="RentManager GCS Dashboard", page_icon="📊", layout="wide"
-)
+st.set_page_config(page_title="RentManager Report Viewer", layout="wide")
 
-# Initialize connection client using secrets
-# Note: Ensure your Secrets header is exactly [gcp]
+# Setup GCS Client
 client = storage.Client.from_service_account_info(st.secrets["gcp"])
 BUCKET_NAME = "rent-man-reports-01"
 
 
-# --- HELPER FUNCTIONS ---
+# --- AUTO-POLLING LOGIC ---
+def list_csv_files(bucket_name):
+    """Scans the bucket and returns a list of CSV filenames."""
+    try:
+        bucket = client.get_bucket(bucket_name)
+        blobs = bucket.list_blobs()
+        # Returns a list of strings for the sidebar
+        return [blob.name for blob in blobs if blob.name.endswith(".csv")]
+    except Exception as e:
+        st.error(f"Error polling bucket: {e}")
+        return []
+
+
 @st.cache_data
-def get_gcs_data(file_name):
-    """Downloads a CSV from GCS and returns a cleaned DataFrame."""
-    try:
-        bucket = client.get_bucket(BUCKET_NAME)
-        blob = bucket.blob(file_name)
-        data = blob.download_as_text()
-
-        # Read the raw single-column data
-        df_raw = pd.read_csv(io.StringIO(data), header=None)
-
-        # Parse the single column (Column 0) into separate columns
-        # This handles the "quoted csv string per row" format
-        df = df_raw[0].str.replace('"', "").str.split(",", expand=True)
-
-        # Promote the first row to be the header
-        df.columns = df.iloc[0].str.strip()
-        df = df[1:].reset_index(drop=True)
-
-        # Ensure 'Amount' is numeric for math operations
-        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
-        return df
-    except Exception as e:
-        st.error(f"Failed to load data: {e}")
-        return None
+def load_csv_from_gcs(file_name):
+    """Reads a standard CSV file directly from the bucket."""
+    bucket = client.get_bucket(BUCKET_NAME)
+    blob = bucket.blob(file_name)
+    content = blob.download_as_text()
+    # No more manual string splitting needed!
+    return pd.read_csv(io.StringIO(content))
 
 
-# --- SIDEBAR: NAVIGATION ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.title("Navigation")
-    try:
-        # Dynamically list all CSV files in the bucket
-        bucket = client.get_bucket(BUCKET_NAME)
-        blobs = list(bucket.list_blobs())
-        file_list = [blob.name for blob in blobs if blob.name.endswith(".csv")]
+    st.header("Report Selection")
+    # This automatically polls the bucket for you
+    available_files = list_csv_files(BUCKET_NAME)
 
-        if file_list:
-            selected_file = st.selectbox(
-                "📂 Select a Report", sorted(file_list, reverse=True)
-            )
-        else:
-            st.warning("No CSV files found in the bucket.")
-            selected_file = None
-    except Exception as e:
-        st.error(f"Permission Error: {e}")
+    if available_files:
+        selected_file = st.selectbox(
+            "Select a file to view:", sorted(available_files, reverse=True)
+        )
+    else:
+        st.warning("No CSV files found.")
         selected_file = None
 
 # --- MAIN CONTENT ---
 if selected_file:
-    df = get_gcs_data(selected_file)
+    df = load_csv_from_gcs(selected_file)
 
-    if df is not None:
+    # Clean up column names and amounts
+    df.columns = df.columns.str.strip()
+    if "Amount" in df.columns:
+        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+
         # Filter for Expenses
-        # Searching for 'Exp' catches 'Expense' and 'Non Operating Expense'
         expenses = df[
             df["Account Type"].str.contains("Exp", case=False, na=False)
         ].copy()
 
-        st.header(f"Summary: {selected_file}")
+        st.header(f"Report: {selected_file}")
 
-        col1, col2 = st.columns([3, 1])
-
-        with col1:
-            st.subheader("Detail View")
-            if not expenses.empty:
-                st.dataframe(expenses, use_container_width=True, height=500)
-            else:
-                st.warning("No expense rows found in this file.")
-
-        with col2:
-            st.subheader("Financials")
-            if not expenses.empty:
-                # float() conversion prevents JSON serialization errors
-                total_val = float(expenses["Amount"].sum())
-                st.metric(label="Total Expenses", value=f"${total_val:,.2f}")
-
-                # Bonus: Simple breakdown by Parent category
-                st.write("Breakdown by Category:")
-                summary = (
-                    expenses.groupby("Parent")["Amount"]
-                    .sum()
-                    .sort_values(ascending=False)
-                )
-                st.table(summary.map("${:,.2f}".format))
-
-        # Optional: Show raw data for debugging
-        with st.expander("View Raw Data (All Rows)"):
-            st.write(df)
+        if not expenses.empty:
+            st.metric("Total Expenses", f"${float(expenses['Amount'].sum()):,.2f}")
+            st.dataframe(expenses, use_container_width=True)
+        else:
+            st.info("No expense rows found. Showing raw data below:")
+            st.dataframe(df)
+    else:
+        st.error(
+            f"Error: Column 'Amount' not found. Columns available: {df.columns.tolist()}"
+        )
 else:
-    st.info("👈 Please select a report from the sidebar to view the data.")
+    st.info("👈 Select a report from the sidebar to begin.")
