@@ -60,7 +60,7 @@ if selected_week != "Select...":
             # 6. Show the Grand Total
             # Using .item() or float() converts the numpy int64 to a standard float
             total_val = float(expenses["Amount"].sum())
-s
+
             st.divider()
             st.metric(label="Grand Total Expenses", value=f"${total_val:,.2f}")
         else:
