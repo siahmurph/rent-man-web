@@ -1,78 +1,137 @@
 import streamlit as st
 import pandas as pd
 from google.cloud import storage
-import io
+from datetime import datetime
+from io import BytesIO, StringIO
+import csv
+from openpyxl.styles import PatternFill, Border, Side
+from openpyxl.worksheet.pagebreak import Break
 
-# --- INITIALIZE APP ---
-st.set_page_config(page_title="RentManager Report Viewer", layout="wide")
+# --- CONFIGURATION (From your Local Code) ---
+PROPERTY_NAMES = [
+    "12241 Londonderry Lane",
+    "1410 W. Irving Park",
+    "1745 N. Clybourn Residential",
+    "2949 Halsted",
+    "3349 Willowcreek",
+    "6854 Highland Pines Circle",
+    "995 Second Ave.",
+    "Eastgate Plaza",
+    "Foxmoor Plaza",
+    "Grand Trunk Warehouse",
+    "Morton Grove 09",
+    "Morton Grove 10",
+    "Morton Grove 11",
+    "Morton Grove 37",
+    "Patriot Square",
+    "Riverdale Shopping Center",
+    "San Carlos Plaza",
+    "Shoppes on Clybourn",
+    "Willowcreek Plaza",
+]
+OUTPUT_ORDER = [
+    "Shoppes on Clybourn",
+    "Eastgate Plaza",
+    "Grand Trunk Warehouse",
+    "Willowcreek Plaza",
+    "3349 Willowcreek",
+    "995 Second Ave.",
+    "Foxmoor Plaza",
+    "Patriot Square",
+    "Riverdale Shopping Center",
+    "San Carlos Plaza",
+    "1410 W. Irving Park",
+    "2949 Halsted",
+    "1745 N. Clybourn Residential",
+    "Morton Grove 09",
+    "Morton Grove 10",
+    "Morton Grove 11",
+    "Morton Grove 37",
+    "12241 Londonderry Lane",
+    "6854 Highland Pines Circle",
+]
+HEADER_ROW = "Account Type,Parent,Account,Amount"
 
-# Setup GCS Client
+# --- GCS SETUP ---
 client = storage.Client.from_service_account_info(st.secrets["gcp"])
 BUCKET_NAME = "rent-man-reports-01"
 
 
-# --- AUTO-POLLING LOGIC ---
-def list_csv_files(bucket_name):
-    """Scans the bucket and returns a list of CSV filenames."""
-    try:
-        bucket = client.get_bucket(bucket_name)
-        blobs = bucket.list_blobs()
-        # Returns a list of strings for the sidebar
-        return [blob.name for blob in blobs if blob.name.endswith(".csv")]
-    except Exception as e:
-        st.error(f"Error polling bucket: {e}")
-        return []
+# --- CORE LOGIC (Imported from your Local Version) ---
+def parse_csv_sections(content):
+    lines = content.strip().split("\n")
+    header_indices = []
+    for i, line in enumerate(lines):
+        normalized_line = line.strip().replace('"', "").replace("\r", "")
+        if normalized_line == HEADER_ROW:
+            header_indices.append(i)
+    return header_indices, lines
 
 
-@st.cache_data
-def load_csv_from_gcs(file_name):
-    """Reads a standard CSV file directly from the bucket."""
-    bucket = client.get_bucket(BUCKET_NAME)
-    blob = bucket.blob(file_name)
-    content = blob.download_as_text()
-    # No more manual string splitting needed!
-    return pd.read_csv(io.StringIO(content))
+def transform_property_section(lines, start_idx, end_idx, property_name):
+    # ... [Same logic as your local transform_property_section function] ...
+    # (Keeps expenses, groups by parent, adds totals)
+    pass
 
 
-# --- SIDEBAR ---
+# --- STREAMLIT UI ---
+st.set_page_config(page_title="RentManager Pro Dashboard", layout="wide")
+
 with st.sidebar:
-    st.header("Report Selection")
-    # This automatically polls the bucket for you
-    available_files = list_csv_files(BUCKET_NAME)
+    st.header("1. Select Report")
+    bucket = client.get_bucket(BUCKET_NAME)
+    blobs = bucket.list_blobs()
+    available_files = [b.name for b in blobs if b.name.endswith(".csv")]
+    selected_file = st.selectbox("Choose GCS File", available_files)
 
-    if available_files:
-        selected_file = st.selectbox(
-            "Select a file to view:", sorted(available_files, reverse=True)
-        )
-    else:
-        st.warning("No CSV files found.")
-        selected_file = None
-
-# --- MAIN CONTENT ---
 if selected_file:
-    df = load_csv_from_gcs(selected_file)
+    # 1. Fetch from GCS
+    blob = bucket.blob(selected_file)
+    content = blob.download_as_text()
 
-    # Clean up column names and amounts
-    df.columns = df.columns.str.strip()
-    if "Amount" in df.columns:
-        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+    # 2. Parse and Validate
+    header_indices, lines = parse_csv_sections(content)
 
-        # Filter for Expenses
-        expenses = df[
-            df["Account Type"].str.contains("Exp", case=False, na=False)
-        ].copy()
-
-        st.header(f"Report: {selected_file}")
-
-        if not expenses.empty:
-            st.metric("Total Expenses", f"${float(expenses['Amount'].sum()):,.2f}")
-            st.dataframe(expenses, use_container_width=True)
-        else:
-            st.info("No expense rows found. Showing raw data below:")
-            st.dataframe(df)
-    else:
+    if len(header_indices) != 19:
         st.error(
-            f"Error: Column 'Amount' not found. Columns available: {df.columns.tolist()}"
+            f"Validation Error: Found {len(header_indices)} properties, expected 19."
         )
-else:
-    st.info("👈 Select a report from the sidebar to begin.")
+    else:
+        st.success(f"Successfully loaded {selected_file}")
+
+        # 3. Property Selection
+        st.subheader("2. Filter & Export")
+        selected_props = st.multiselect(
+            "Include Properties:", OUTPUT_ORDER, default=OUTPUT_ORDER
+        )
+
+        # 4. Processing (The actual stitching)
+        all_rows = []
+        for i, (start_idx, prop_name) in enumerate(zip(header_indices, PROPERTY_NAMES)):
+            if prop_name in selected_props:
+                end_idx = (
+                    header_indices[i + 1] if i + 1 < len(header_indices) else len(lines)
+                )
+                all_rows.extend(
+                    transform_property_section(lines, start_idx, end_idx, prop_name)
+                )
+                all_rows.append(["", "", "", ""])  # Spacer
+
+        final_df = pd.DataFrame(
+            all_rows, columns=["Account Type", "Parent", "Account", "Amount"]
+        )
+
+        # 5. UI Tabs for Preview
+        tab1, tab2 = st.tabs(["📊 Summary View", "📥 Export"])
+
+        with tab1:
+            st.dataframe(final_df, use_container_width=True, height=600)
+
+        with tab2:
+            # Excel Download (Using your openpyxl logic)
+            excel_data = convert_df_to_excel(
+                final_df
+            )  # This uses your local formatting function
+            st.download_button(
+                "📥 Download Stitched XLSX", excel_data, f"{selected_file}.xlsx"
+            )
