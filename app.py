@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 import io
+import csv
 
 # --- UI SETUP ---
 st.set_page_config(page_title="RentManager Summarizer", page_icon="📊", layout="wide")
@@ -24,34 +25,40 @@ with st.sidebar:
 if selected_week != "Select...":
     try:
         # 1. Pull the raw string from Cell A1
-        # header=None ensures we treat the first row of the sheet as data
         raw_df = conn.read(worksheet=selected_week, header=None)
+        if raw_df.empty:
+            st.warning("Selected sheet is empty.")
+            st.stop()
 
-        # Grab the content of A1 (row 0, col 0)
         raw_content = str(raw_df.iloc[0, 0]).strip()
 
-        # 2. Parse the CSV text
-        # RentManager often puts quotes around everything.
-        # skipinitialspace handles spaces after commas.
-        df = pd.read_csv(
-            io.StringIO(raw_content),
-            quotechar='"',
-            skipinitialspace=True,
-            on_bad_lines="skip",  # Useful if there are footer/total rows that break the 4-column format
-        )
+        # 2. Manual CSV Parsing
+        # We split the string into lines and use csv.reader to handle the quotes
+        lines = raw_content.splitlines()
+        reader = csv.reader(lines, quotechar='"', skipinitialspace=True)
+        all_rows = list(reader)
 
-        # 3. Clean Columns & Data
-        df.columns = df.columns.str.strip().str.replace('"', "")
+        if not all_rows:
+            st.error("No data found in Cell A1.")
+            st.stop()
 
-        # Remove any repeating header rows that might have been sucked in from the A1 text
-        df = df[df["Account Type"] != "Account Type"]
+        # 3. Build DataFrame and Clean
+        # Use the first row of the CSV text as headers
+        df = pd.DataFrame(all_rows[1:], columns=all_rows[0])
+
+        # Strip whitespace from column names and all cells
+        df.columns = df.columns.str.strip()
+        df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+
+        # Remove repeating header rows that appear in the middle of the data
+        df = df[df["Account Type"].str.lower() != "account type"]
 
         # 4. Convert Amount to Numeric
-        # Handles strings like "$1,234.56" or "(100.00)"
         def to_numeric_clean(val):
-            if pd.isna(val):
+            if not val or pd.isna(val):
                 return 0.0
-            s = str(val).replace("$", "").replace(",", "").replace('"', "").strip()
+            # Remove symbols and handle accounting parens (100.00)
+            s = str(val).replace("$", "").replace(",", "").strip()
             if s.startswith("(") and s.endswith(")"):
                 s = "-" + s[1:-1]
             try:
@@ -61,30 +68,50 @@ if selected_week != "Select...":
 
         if "Amount" in df.columns:
             df["Amount"] = df["Amount"].apply(to_numeric_clean)
+        else:
+            st.error(f"Missing 'Amount' column. Found: {df.columns.tolist()}")
+            st.stop()
 
-        # 5. Filter Logic
-        # This catches both "Expense" and "Non Operating Expense"
-        expense_mask = df["Account Type"].str.contains("Expense", case=False, na=False)
-        expenses = df[expense_mask].copy()
+        # 5. Filter for BOTH Expense types
+        # This regex catches "Expense" and "Non Operating Expense"
+        expenses = df[
+            df["Account Type"].str.contains("Expense", case=False, na=False)
+        ].copy()
 
         st.header(f"Summary for {selected_week}")
 
         if not expenses.empty:
-            st.dataframe(expenses, use_container_width=True)
+            # Display a clean summary table
+            st.subheader("Expense Details")
+            st.dataframe(
+                expenses[["Account Type", "Parent", "Account", "Amount"]],
+                use_container_width=True,
+                height=500,
+            )
 
+            # Metrics Calculation
             total_val = expenses["Amount"].sum()
             st.divider()
-            st.metric(label="Grand Total Expenses", value=f"${total_val:,.2f}")
-        else:
-            st.warning("⚠️ No 'Expense' rows found.")
-            # Critical Debug: Show what we actually parsed
-            with st.expander("Debug: Data Structure in Cell A1"):
-                st.write("Columns Detected:", list(df.columns))
-                st.write(
-                    "First 5 rows of Account Type column:",
-                    df["Account Type"].head().tolist(),
+
+            # Layout metrics for better visibility
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric(
+                    label="Total Expenses Identified", value=f"{len(expenses)} rows"
                 )
-                st.dataframe(df.head())
+            with col2:
+                st.metric(label="Grand Total Cost", value=f"${total_val:,.2f}")
+
+        else:
+            st.warning("⚠️ No 'Expense' or 'Non Operating Expense' rows found.")
+            with st.expander("Debug: Raw Data Check"):
+                st.write(
+                    "Unique values in 'Account Type':",
+                    df["Account Type"].unique().tolist(),
+                )
+                st.dataframe(df.head(20))
 
     except Exception as e:
         st.error(f"Error processing data: {e}")
+else:
+    st.info("👈 Please select a reporting period in the sidebar.")
