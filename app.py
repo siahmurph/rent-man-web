@@ -58,11 +58,11 @@ if selected_week != "Select...":
             st.dataframe(expenses, width="stretch", height=500)
 
             # 6. Show the Grand Total
-        # Using .item() or float() converts the numpy int64 to a standard float
-        total_val = float(expenses['Amount'].sum())
-     
-        st.divider()
-        st.metric(label="Grand Total Expenses", value=f"${total_val:,.2f}")
+            # Using .item() or float() converts the numpy int64 to a standard float
+            total_val = float(expenses["Amount"].sum())
+s
+            st.divider()
+            st.metric(label="Grand Total Expenses", value=f"${total_val:,.2f}")
         else:
             st.warning("⚠️ No 'Expense' rows found in the data.")
             st.write("Columns detected:", df.columns.tolist())
