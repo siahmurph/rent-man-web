@@ -6,30 +6,21 @@ from streamlit_gsheets import GSheetsConnection
 st.set_page_config(page_title="RentManager Debug", page_icon="📊", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-with st.sidebar:
-    # 2026 Syntax: width='stretch' replaces use_container_width
-    st.markdown("### **System Status**")
-    
-    try:
-        # Step 1: Attempt to verify connection and fetch metadata
-        sheet_metadata = conn.client._spreadsheets.get(conn._spreadsheet_id)
-        weeks = [s['properties']['title'] for s in sheet_metadata['sheets']]
+try:
+        # Fetching tab names using the correct gspread attributes
+        spreadsheet_id = conn._spreadsheet_id
+        client = conn.client
+        
+        # This opens the sheet and grabs the tab titles
+        metadata = client.open_by_key(spreadsheet_id).fetch_sheet_metadata()
+        weeks = [s['properties']['title'] for s in metadata['sheets']]
         
         st.success("✅ Connection Successful")
         selected_week = st.selectbox("📅 Select Reporting Period", ["Select..."] + weeks)
         
     except Exception as e:
-        # Step 2: Print the REAL error message to the screen
-        st.error("⚠️ Connection Failed")
-        st.write("### Technical Error Details:")
+        st.error("⚠️ Metadata Fetch Failed")
         st.code(str(e))
-        
-        st.info("""
-        **Common Fixes:**
-        1. **Enable APIs:** Ensure 'Google Drive API' is enabled in Cloud Console.
-        2. **Check Quotes:** Ensure `private_key` in Secrets is wrapped in "double quotes".
-        3. **Sharing:** Re-verify the Sheet is shared with the service account email.
-        """)
         st.stop()
 
 # --- MAIN CONTENT ---
