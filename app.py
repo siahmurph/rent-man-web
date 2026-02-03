@@ -7,20 +7,19 @@ st.set_page_config(page_title="RentManager Debug", page_icon="📊", layout="wid
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 with st.sidebar:
-    try:
-        # Fetching tab names using the correct gspread attributes
-        spreadsheet_id = conn._spreadsheet_id
+try:
+        # Access the Spreadsheet ID directly from your Secrets
+        spreadsheet_id = st.secrets["connections"]["gsheets"]["spreadsheet"]
         client = conn.client
-
-        # This opens the sheet and grabs the tab titles
-        metadata = client.open_by_key(spreadsheet_id).fetch_sheet_metadata()
-        weeks = [s["properties"]["title"] for s in metadata["sheets"]]
-
+        
+        # Open by URL since that is what you have in your secrets
+        sh = client.open_by_url(spreadsheet_id)
+        metadata = sh.fetch_sheet_metadata()
+        weeks = [s['properties']['title'] for s in metadata['sheets']]
+        
         st.success("✅ Connection Successful")
-        selected_week = st.selectbox(
-            "📅 Select Reporting Period", ["Select..."] + weeks
-        )
-
+        selected_week = st.selectbox("📅 Select Reporting Period", ["Select..."] + weeks)
+        
     except Exception as e:
         st.error("⚠️ Metadata Fetch Failed")
         st.code(str(e))
