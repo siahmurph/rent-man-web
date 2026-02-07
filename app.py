@@ -58,8 +58,18 @@ HEADER_ROW = "Account Type,Parent,Account,Amount"
 
 # --- 2. GCS INITIALIZATION ---
 # Authenticate using secrets stored in Streamlit Cloud
-client = storage.Client.from_service_account_info(st.secrets["gcp"])
-BUCKET_NAME = "rent-man-reports-1"
+
+# Helper to fix key formatting if TOML messes it up
+service_account_info = st.secrets["gcp"]
+
+# Create a copy to avoid mutating the secrets object directly
+my_service_account_info = dict(service_account_info)
+my_service_account_info["private_key"] = my_service_account_info["private_key"].replace("\\n", "\n")
+
+# Initialize the client with the fixed info
+client = storage.Client.from_service_account_info(my_service_account_info)
+
+BUCKET_NAME = "rent-man-reports-01" # Make sure this matches your actual bucket name
 
 
 # --- 3. CORE LOGIC FUNCTIONS ---
