@@ -59,7 +59,7 @@ HEADER_ROW = "Account Type,Parent,Account,Amount"
 # --- 2. GCS INITIALIZATION ---
 # Authenticate using secrets stored in Streamlit Cloud
 client = storage.Client.from_service_account_info(st.secrets["gcp"])
-BUCKET_NAME = "rent-man-reports-01"
+BUCKET_NAME = "rent-man-reports-1"
 
 
 # --- 3. CORE LOGIC FUNCTIONS ---
