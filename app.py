@@ -69,7 +69,7 @@ my_service_account_info["private_key"] = my_service_account_info["private_key"].
 # Initialize the client with the fixed info
 client = storage.Client.from_service_account_info(my_service_account_info)
 
-BUCKET_NAME = "rent-man-reports-01" # Make sure this matches your actual bucket name
+BUCKET_NAME = "pnlbox" # Make sure this matches your actual bucket name
 
 
 # --- 3. CORE LOGIC FUNCTIONS ---
